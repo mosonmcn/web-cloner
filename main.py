@@ -1,94 +1,96 @@
+import sys
 import os
-from urllib.parse import urljoin
-from bs4 import BeautifulSoup 
 
-# Shigo da ma'aikata daga folder mon/
-from mon.fetcher import fetch
-from mon.filesystem import path_to_local
-from mon.saver import save_content
-from mon.parser import extract_paths
-from mon.api_analyzer import advanced_static_analysis, save_api_spec
-from mon.explorer import generate_website_explorer
+# Import core modules from the mon directory
+from mon.fetcher import Fetcher
+from mon.saver import Saver
+from mon.parser import Parser
+from mon.api_analyzer import APIAnalyzer
+from mon.api_verifier import APIVerifier
+from mon.explorer import Explorer
+from mon.compiler_engine import CompilerEngine
 
-domain = "payfluxai.com.ng"
-base_url = "https://" + domain
+def main():
+    # Check if the domain was passed as a command-line argument
+    if len(sys.argv) > 1:
+        domain = sys.argv[1]
+    else:
+        # Prompt the user for input if no parameter was provided
+        try:
+            domain = input("Enter domain to clone (e.g., example.com): ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\n[!] Operation cancelled by user.")
+            sys.exit(0)
 
-def get_unique_domain_folder(base_domain):
-    """
-    Injin dake duba folder: Idan akwai data/payfluxai.com.ng,
-    zai kera data/payfluxai.com.ng_2, data/payfluxai.com.ng_3, da sauransu.
-    """
-    target_folder = os.path.join("data", base_domain)
-    if not os.path.exists(target_folder):
-        return base_domain, target_folder
-        
-    counter = 2
-    while True:
-        new_domain_name = f"{base_domain}_{counter}"
-        new_folder = os.path.join("data", new_domain_name)
-        if not os.path.exists(new_folder):
-            return new_domain_name, new_folder
-        counter += 1
+    # Validate that the domain is not empty
+    if not domain:
+        print("[!] Error: No domain provided. Exiting.")
+        sys.exit(1)
 
-# Kaddamar da gano folder ta musamman
-active_domain_name, output_folder_path = get_unique_domain_folder(domain)
+    # Basic protocol formatting
+    if not domain.startswith(("http://", "https://")):
+        target_url = f"https://{domain}"
+    else:
+        target_url = domain
+        domain = domain.replace("https://", "").replace("http://", "").split("/")[0]
 
-visited = set()
-queue = ["/"]
-
-print(f"[+] Launching Ultra-Duty AI Reverse Engine for -> {base_url}")
-print(f"[+] Local Repository root set to: {output_folder_path}\n")
-
-while queue:
-    path = queue.pop(0)
-    if path in visited:
-        continue
-        
-    full_url = urljoin(base_url, path)
-    print(f"[📥 FETCHING] -> {full_url}")
-    visited.add(path)
+    print(f"[*] Initializing clone process for: {domain} ({target_url})")
     
-    status, content, ctype = fetch(full_url)
-    if status != 200:
-        print(f"   [❌ FAILED] HTTP status code {status}")
-        continue
+    # Define output directory
+    output_dir = os.path.join("output", domain)
+    os.makedirs(output_dir, exist_ok=True)
+
+    try:
+        # 1. Initialize Fetcher to download the main page
+        print("[*] Fetching target page source...")
+        fetcher = Fetcher(target_url)
+        html_content = fetcher.get_html()
         
-    # Sanya sunan file da madaidacin tafarki na gida
-    local_file_path = path_to_local(active_domain_name, path, ctype)
-    
-    # Ajiye danyen bayani (HTML, JS, CSS, hotuna ko videos)
-    save_content(local_file_path, content)
-    
-    # --- CYBER THREAT INTELLIGENCE & API REVERSE SECTION ---
-    # MATAKI NA A: IDAN FAYIL DIN JAVASCRIPT NE
-    if ctype and ("javascript" in ctype or "x-javascript" in ctype) or path.endswith(".js"):
-        print(f"   [⚙️ STATIC ANALYSIS] Scanning JavaScript functions inside: /{path}...")
-        discovered_specs = advanced_static_analysis(content, current_file_route=f"/{path.lstrip('/')}")
-        if discovered_specs:
-            save_api_spec(active_domain_name, discovered_specs)
+        if not html_content:
+            print("[!] Error: Failed to fetch content from target domain.")
+            sys.exit(1)
 
-    # MATAKI NA B: IDAN SHAFIN HTML NE
-    if ctype and "text/html" in ctype:
-        soup = BeautifulSoup(content, "html.parser")
+        # 2. Parse HTML content and discover assets
+        print("[*] Parsing HTML and discovering resources...")
+        parser = Parser(html_content, target_url)
+        assets = parser.get_assets()
+        links = parser.get_links()
         
-        inline_scripts = soup.find_all("script")
-        for script in inline_scripts:
-            if script.string and ("apiCall" in script.string or "fetch" in script.string):
-                print(f"   [🔍 INLINE SCRIPT] Found potential API logic inside HTML layout!")
-                html_discovered_specs = advanced_static_analysis(script.string, current_file_route=f"/{path.lstrip('/')}")
-                if html_discovered_specs:
-                    save_api_spec(active_domain_name, html_discovered_specs)
+        # 3. Save resources locally to clone the page
+        print(f"[*] Cloning assets locally to: {output_dir}")
+        saver = Saver(output_dir)
+        saver.save_html(html_content)
+        saver.download_assets(assets)
 
-        # Ci gaba da kwaso sauran hanyoyin HTML
-        new_paths = extract_paths(content, full_url, domain)
-        for p in new_paths:
-            if p not in visited: 
-                queue.append(p)
+        # 4. Analyze scripts and APIs from discovered endpoints
+        print("[*] Running API and Endpoint analysis...")
+        analyzer = APIAnalyzer(assets, html_content)
+        discovered_apis = analyzer.find_endpoints()
 
-# Kaddamar da gina babban Explorer Tree a daidai sabuwar folder din
-print(f"\n[+] Mapping cloned directory structure for {active_domain_name}...")
-generate_website_explorer(active_domain_name)
+        # 5. Verify live endpoints if needed
+        print("[*] Verifying discovered API endpoints...")
+        verifier = APIVerifier(discovered_apis)
+        verified_results = verifier.verify_all()
 
-print(f"\n[🎯 SYSTEM COMPLETE] Full-Stack extraction finished!")
-print(f"   -> Frontend files saved in: {output_folder_path}")
-print(f"   -> API Specification Model compiled in: data/{active_domain_name}/api_spec.json\n")
+        # 6. Map directory structure and export compiled results
+        print("[*] Compiling workspace structure...")
+        explorer = Explorer(output_dir)
+        directory_tree = explorer.generate_tree()
+
+        engine = CompilerEngine(
+            domain=domain,
+            cloned_path=output_dir,
+            apis=verified_results,
+            tree=directory_tree
+        )
+        engine.export_report()
+
+        print(f"[+] Successfully cloned and analyzed: {domain}")
+        print(f"[+] Output compiled and saved in: {output_dir}")
+        
+    except Exception as e:
+        print(f"[!] An error occurred during the execution: {e}")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    main()
