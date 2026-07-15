@@ -36,3 +36,14 @@ Pass your target domain directly when launching the script:
 
 ```bash
 python main.py example.com
+```
+
+## Interactive Prompt
+
+Run the script standalone, and it will prompt you for the target domain:
+
+```bash
+python main.py
+# Prompt: Enter domain to clone (e.g., example.com):
+```
+
