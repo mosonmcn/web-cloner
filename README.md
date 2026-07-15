@@ -29,3 +29,9 @@ Install the required dependencies prior to running the cloner:
 
 ```bash
 pip install requests beautifulsoup4
+
+## Command-Line Argument
+
+Pass your target domain directly when launching the script:
+
+```bash python main.py example.com
